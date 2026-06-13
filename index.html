@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Soep & Beleg Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 8px; }
+        button { padding: 15px 25px; margin: 5px; cursor: pointer; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Soep Tracker</h2>
+        <button onclick="logBesparing(1.50)">Soep genomen (€1,50)</button>
+        <button onclick="logBesparing(0)">Geen soep (€0)</button>
+    </div>
+
+    <div class="card">
+        <h2>Dashboard</h2>
+        <p id="totalSaved">Totaal bespaard: €0</p>
+        <canvas id="myChart" width="400" height="200"></canvas>
+    </div>
+
+    <div class="card">
+        <h2>Beleggingscalculator (7% rendement)</h2>
+        <p id="investResult">Besparingen na 10 jaar: €0</p>
+    </div>
+
+    <script>
+        let data = JSON.parse(localStorage.getItem('soepData')) || [];
+
+        function logBesparing(bedrag) {
+            data.push({ date: new Date().toISOString(), amount: bedrag });
+            localStorage.setItem('soepData', JSON.stringify(data));
+            updateUI();
+        }
+
+        function updateUI() {
+            const total = data.reduce((sum, item) => sum + item.amount, 0);
+            document.getElementById('totalSaved').innerText = `Totaal bespaard: €${total.toFixed(2)}`;
+            
+            // Beleggingsberekening: A = P(1 + r)^n
+            let futureValue = total * Math.pow(1.07, 10);
+            document.getElementById('investResult').innerText = `Toekomstige waarde na 10 jaar: €${futureValue.toFixed(2)}`;
+        }
+
+        updateUI();
+    </script>
+</body>
+</html>
