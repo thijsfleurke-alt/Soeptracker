@@ -11,12 +11,18 @@
         body { font-family: sans-serif; padding: 10px; background-color: var(--bg); color: var(--text); }
         .card { background: var(--card); border: 1px solid var(--border); padding: 10px; margin-bottom: 10px; border-radius: 8px; }
         
+        /* Knoppen raster */
         .btn-container { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;}
         button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-size: 11px; color: white; flex: 1 1 30%; }
         
+        /* Kleurenpalet voor de knoppen */
         .btn-soep { background-color: #27ae60; }
         .btn-water { background-color: #2980b9; }
         .btn-auto { background-color: #8e44ad; }
+        .btn-koffie { background-color: #d35400; }
+        .btn-thuis { background-color: #16a085; }
+        .btn-collect { background-color: #c0392b; }
+        .btn-andere { background-color: #34495e; }
         
         .btn-transfer { background-color: #f39c12; margin-top: 5px; display: block; width: 100%; font-weight: bold; font-size: 12px; }
         
@@ -25,15 +31,14 @@
         .btn-reset { background-color: #c0392b; flex: 1; }
         .btn-dark { background-color: #7f8c8d; display: block; width: 100%; margin-top: 5px; }
         
-        .ticker-container { display: flex; gap: 5px; margin-bottom: 10px; font-size: 12px; }
-        .ticker { padding: 4px; border-radius: 4px; color: white; font-weight: bold; flex: 1; text-align: center; }
+        .ticker-container { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; font-size: 11px; }
+        .ticker { padding: 4px; border-radius: 4px; color: white; font-weight: bold; flex: 1 1 20%; text-align: center; }
         .timestamp { font-size: 11px; font-style: italic; color: #7f8c8d; text-align: center; margin-bottom: 5px; }
         
-        .chart-container { height: 220px; width: 100%; }
+        .chart-container { height: 250px; width: 100%; }
         .info-text { font-size: 14px; margin: 5px 0; }
         .highlight { color: #f39c12; font-weight: bold; }
 
-        /* Tabel styling */
         table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 5px; }
         th, td { padding: 6px; text-align: left; border-bottom: 1px solid var(--border); }
         th { font-weight: bold; }
@@ -45,16 +50,17 @@
 
     <div class="card">
         <div class="btn-container">
-            <button class="btn-soep" onclick="log(1.50, 'Geen soep')">Geen soep (+€1,50)</button>
-            <button class="btn-water" onclick="log(0.19, 'Geen water')">Geen water (+€0,19)</button>
-            <button class="btn-auto" onclick="log(17.00, 'Auto Zelf wassen')">Auto Zelf wassen (+€17)</button>
+            <button class="btn-soep" onclick="promptAndLog(1.50, 'Geen soep')">Geen soep (±€1,50)</button>
+            <button class="btn-water" onclick="promptAndLog(0.19, 'Geen water')">Geen water (±€0,19)</button>
+            <button class="btn-auto" onclick="promptAndLog(17.00, 'Auto Zelf wassen')">Auto wassen (±€17)</button>
+            <button class="btn-koffie" onclick="promptAndLog(0.35, 'Geen koffie')">Geen koffie (±€0,35)</button>
+            <button class="btn-thuis" onclick="promptAndLog(1.26, 'Thuiswerken do')">Thuiswerk do (±€1,26)</button>
+            <button class="btn-collect" onclick="promptAndLog(5.95, 'Geen collect & go')">Geen C&G (±€5,95)</button>
+            <button class="btn-andere" onclick="promptAndere()">Andere...</button>
         </div>
         
-        <div class="ticker-container">
-            <span class="ticker btn-soep"><span id="countSoep">0</span>x</span>
-            <span class="ticker btn-water"><span id="countWater">0</span>x</span>
-            <span class="ticker btn-auto"><span id="countAuto">0</span>x</span>
-        </div>
+        <div id="tickerBox" class="ticker-container">
+            </div>
         <div id="lastTimestamp" class="timestamp">Laatste besparing: -</div>
 
         <button class="btn-transfer" onclick="logTransfer()">Overschrijven naar rekening</button>
@@ -82,19 +88,46 @@
     <div class="card">
         <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 5px;">Laatste 10 Acties</h3>
         <table>
-            <thead>
-                <tr>
-                    <th>Datum</th>
-                    <th>Actie</th>
-                    <th>Bedrag</th>
-                </tr>
-            </thead>
-            <tbody id="actionHistory">
-                </tbody>
+            <thead><tr><th>Datum</th><th>Actie</th><th>Bedrag</th></tr></thead>
+            <tbody id="actionHistory"></tbody>
         </table>
     </div>
 
     <script>
+        // --- 1. HISTORISCHE DATA INLADEN (Eenmalig) ---
+        function seedInitialData() {
+            if (localStorage.getItem('seeded_v3') !== 'true') {
+                localStorage.removeItem('soepData');
+                localStorage.removeItem('transferData');
+
+                let initialData = [
+                    { date: '2026-02-15T12:00:00.000Z', amount: 67.00, type: 'Historie Feb' },
+                    { date: '2026-03-15T12:00:00.000Z', amount: 75.00, type: 'Historie Mrt' },
+                    { date: '2026-04-15T12:00:00.000Z', amount: 18.00, type: 'Historie Apr' },
+                    { date: '2026-05-15T12:00:00.000Z', amount: 38.00, type: 'Historie Mei' },
+                    { date: '2026-06-10T12:00:00.000Z', amount: 5.70, type: 'Historie Jun' },
+                    { date: '2026-06-11T12:00:00.000Z', amount: 0.22, type: 'Correctie tot 203.92' }
+                ];
+                let initialTransfers = [
+                    { date: '2026-06-12T12:00:00.000Z', amount: 198.00 }
+                ];
+
+                localStorage.setItem('soepData', JSON.stringify(initialData));
+                localStorage.setItem('transferData', JSON.stringify(initialTransfers));
+                localStorage.setItem('seeded_v3', 'true');
+            }
+        }
+        seedInitialData();
+
+        // --- 2. HULPFUNCTIES & DATA OPSLAG ---
+        const colorMap = {
+            'Geen soep': '#27ae60', 'Geen water': '#2980b9', 'Auto Zelf wassen': '#8e44ad',
+            'Geen koffie': '#d35400', 'Thuiswerken do': '#16a085', 'Geen collect & go': '#c0392b',
+            'Andere': '#34495e', 'Historie Feb': '#95a5a6', 'Historie Mrt': '#95a5a6',
+            'Historie Apr': '#95a5a6', 'Historie Mei': '#95a5a6', 'Historie Jun': '#95a5a6'
+        };
+        function getColor(type) { return colorMap[type] || '#34495e'; }
+        
         function toggleDarkMode() { document.body.classList.toggle('dark-mode'); }
 
         function safeLoad(key) {
@@ -102,18 +135,40 @@
                 let data = JSON.parse(localStorage.getItem(key));
                 if (!Array.isArray(data)) return [];
                 return data.filter(item => item !== null && typeof item === 'object' && !isNaN(item.amount));
-            } catch (e) {
-                console.error("Fout bij laden van data:", e);
-                return [];
-            }
+            } catch (e) { return []; }
         }
-
         function safeSave(key, data) {
             try { localStorage.setItem(key, JSON.stringify(data)); } 
             catch (e) { alert("Browser blokkeert opslag."); }
         }
 
-        function log(bedrag, type) {
+        // --- 3. ACTIES TOEVOEGEN ---
+        function promptAndLog(defaultBedrag, type) {
+            // Laat de gebruiker het bedrag zien en eventueel wijzigen
+            let input = prompt(`Bevestig of wijzig het bespaarde bedrag voor '${type}':`, defaultBedrag.toFixed(2).replace('.', ','));
+            if (input !== null && input.trim() !== "") {
+                let bedrag = parseFloat(input.replace(',', '.'));
+                if (!isNaN(bedrag) && bedrag > 0) {
+                    logAction(bedrag, type);
+                } else {
+                    alert("Ongeldig bedrag.");
+                }
+            }
+        }
+
+        function promptAndere() {
+            let desc = prompt("Wat heb je bespaard? (Bv. 'Broodje overgeslagen')");
+            if (!desc) return;
+            let input = prompt(`Hoeveel heb je bespaard met '${desc}'?`);
+            if (input !== null && input.trim() !== "") {
+                let bedrag = parseFloat(input.replace(',', '.'));
+                if (!isNaN(bedrag) && bedrag > 0) {
+                    logAction(bedrag, desc); // Gebruik de omschrijving als type
+                }
+            }
+        }
+
+        function logAction(bedrag, type) {
             let data = safeLoad('soepData');
             data.push({ date: new Date().toISOString(), amount: Number(bedrag), type: type });
             safeSave('soepData', data);
@@ -129,92 +184,71 @@
                     transfers.push({ date: new Date().toISOString(), amount: bedrag });
                     safeSave('transferData', transfers);
                     updateUI();
-                } else {
-                    alert("Vul alsjeblieft een geldig getal in.");
-                }
+                } else { alert("Vul alsjeblieft een geldig getal in."); }
             }
         }
 
+        // --- 4. BEHEREN VAN DATA ---
         function undoLastAction() {
             let data = safeLoad('soepData');
             let transfers = safeLoad('transferData');
-
             let lastDataTime = data.length > 0 ? new Date(data[data.length - 1].date).getTime() : 0;
             let lastTransferTime = transfers.length > 0 ? new Date(transfers[transfers.length - 1].date).getTime() : 0;
 
-            if (lastDataTime === 0 && lastTransferTime === 0) {
-                alert("Er is niets om ongedaan te maken.");
-                return;
-            }
+            if (lastDataTime === 0 && lastTransferTime === 0) return alert("Niets om ongedaan te maken.");
 
-            if (lastDataTime > lastTransferTime) {
-                data.pop();
-                safeSave('soepData', data);
-            } else {
-                transfers.pop();
-                safeSave('transferData', transfers);
-            }
+            if (lastDataTime > lastTransferTime) { data.pop(); safeSave('soepData', data); } 
+            else { transfers.pop(); safeSave('transferData', transfers); }
             updateUI();
         }
 
         function resetData() {
-            if (confirm("Weet je zeker dat je alle data wilt wissen?")) {
+            if (confirm("Let op: Dit wist ook je opgeslagen Historie (Feb-Jun). Weet je het zeker?")) {
                 localStorage.removeItem('soepData');
                 localStorage.removeItem('transferData');
                 updateUI();
             }
         }
 
+        // --- 5. HET SCHERM UPDATEN ---
         function updateUI() {
             try {
                 let data = safeLoad('soepData');
                 let transfers = safeLoad('transferData');
+                let allActions = [];
+                let monthlyData = {};
+                let typeCounts = {}; // Telt hoe vaak je op een knop hebt gedrukt
 
-                let countSoep = 0, countWater = 0, countAuto = 0;
                 let lastSaveDate = null;
                 let lastTransferDate = null;
-                
-                // Array voor de geschiedenis tabel
-                let allActions = [];
 
                 const totalSaved = data.reduce((sum, item) => sum + Number(item.amount), 0);
                 const totalTransferred = transfers.reduce((sum, item) => sum + Number(item.amount), 0);
                 const remaining = totalSaved - totalTransferred;
                 let futureValue = totalSaved * Math.pow(1.07, 10);
                 
-                document.getElementById('totalSaved').innerText = `Totaal bespaard: €${totalSaved.toFixed(2)}`;
-                document.getElementById('totalTransferred').innerText = `Overgeschreven: €${totalTransferred.toFixed(2)}`;
-                document.getElementById('remainingSaved').innerText = `Resterend budget: €${remaining.toFixed(2)}`;
-                document.getElementById('investResult').innerText = `Waarde na 10 jaar (7%): €${futureValue.toFixed(2)}`;
+                document.getElementById('totalSaved').innerText = `Totaal bespaard: €${totalSaved.toFixed(2).replace('.', ',')}`;
+                document.getElementById('totalTransferred').innerText = `Overgeschreven: €${totalTransferred.toFixed(2).replace('.', ',')}`;
+                document.getElementById('remainingSaved').innerText = `Resterend budget: €${remaining.toFixed(2).replace('.', ',')}`;
+                document.getElementById('investResult').innerText = `Waarde na 10 jaar (7%): €${futureValue.toFixed(2).replace('.', ',')}`;
 
-                const monthlyData = {};
-                
                 data.forEach(item => {
                     if (!item.date) return;
-                    
                     let itemDate = new Date(item.date);
                     if (!lastSaveDate || itemDate > lastSaveDate) lastSaveDate = itemDate;
 
                     const month = itemDate.toLocaleString('nl-NL', { month: 'short', year: '2-digit' });
-                    if (!monthlyData[month]) monthlyData[month] = { 'Geen soep': 0, 'Geen water': 0, 'Auto Zelf wassen': 0 };
-                    
-                    let type = item.type;
-                    if (!type) {
-                        if (item.amount === 1.5) type = 'Geen soep';
-                        else if (item.amount === 0.19) type = 'Geen water';
-                        else type = 'Geen soep';
-                    }
+                    let type = item.type || 'Overig';
                     if (type === 'Auto wassen') type = 'Auto Zelf wassen'; 
                     
-                    if (type === 'Geen soep') countSoep++;
-                    if (type === 'Geen water') countWater++;
-                    if (type === 'Auto Zelf wassen') countAuto++;
-
-                    if (monthlyData[month][type] !== undefined) {
-                        monthlyData[month][type] += Number(item.amount);
-                    }
+                    if (!monthlyData[month]) monthlyData[month] = {};
+                    if (monthlyData[month][type] === undefined) monthlyData[month][type] = 0;
+                    monthlyData[month][type] += Number(item.amount);
                     
-                    // Voeg toe aan geschiedenis array
+                    // Ticker ophogen (negeer de hardcoded historie regels)
+                    if(!type.includes('Historie') && !type.includes('Correctie')) {
+                        typeCounts[type] = (typeCounts[type] || 0) + 1;
+                    }
                     allActions.push({ date: itemDate, type: type, amount: Number(item.amount), isTransfer: false });
                 });
 
@@ -222,81 +256,72 @@
                     if (!item.date) return;
                     let itemDate = new Date(item.date);
                     if (!lastTransferDate || itemDate > lastTransferDate) lastTransferDate = itemDate;
-                    
-                    // Voeg toe aan geschiedenis array
                     allActions.push({ date: itemDate, type: 'Overschrijving', amount: Number(item.amount), isTransfer: true });
                 });
 
-                document.getElementById('countSoep').innerText = countSoep;
-                document.getElementById('countWater').innerText = countWater;
-                document.getElementById('countAuto').innerText = countAuto;
-                
-                if (lastSaveDate) {
-                    const timeString = lastSaveDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                    document.getElementById('lastTimestamp').innerText = `Laatste besparing: ${timeString}`;
-                } else {
-                    document.getElementById('lastTimestamp').innerText = `Laatste besparing: -`;
+                // Dynamische Tickers Bouwen
+                const tickerBox = document.getElementById('tickerBox');
+                tickerBox.innerHTML = '';
+                for (const [t, count] of Object.entries(typeCounts)) {
+                    let span = document.createElement('span');
+                    span.className = 'ticker';
+                    span.style.backgroundColor = getColor(t);
+                    span.innerText = `${count}x`;
+                    tickerBox.appendChild(span);
                 }
 
-                if (lastTransferDate) {
-                    const transString = lastTransferDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                    document.getElementById('lastTransferTimestamp').innerText = `Laatste overschrijving: ${transString}`;
-                } else {
-                    document.getElementById('lastTransferTimestamp').innerText = `Laatste overschrijving: -`;
-                }
+                document.getElementById('lastTimestamp').innerText = lastSaveDate ? `Laatste besparing: ${lastSaveDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste besparing: -`;
+                document.getElementById('lastTransferTimestamp').innerText = lastTransferDate ? `Laatste overschrijving: ${lastTransferDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste overschrijving: -`;
 
-                // Tabel vullen met de 10 laatste acties
-                allActions.sort((a, b) => b.date - a.date); // Sorteer nieuwste eerst
-                const last10 = allActions.slice(0, 10);
+                // Logboek Tabel
+                allActions.sort((a, b) => b.date - a.date);
                 const tbody = document.getElementById('actionHistory');
-                tbody.innerHTML = ''; // Maak leeg voor de update
-                
-                if (last10.length === 0) {
+                tbody.innerHTML = '';
+                if (allActions.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; font-style:italic;">Nog geen acties</td></tr>';
                 } else {
-                    last10.forEach(act => {
+                    allActions.slice(0, 10).forEach(act => {
                         let tr = document.createElement('tr');
                         let dateStr = act.date.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
                         let amtStr = (act.isTransfer ? '- €' : '+ €') + act.amount.toFixed(2);
-                        let amountClass = act.isTransfer ? 'amount-min' : 'amount-plus';
-                        
-                        tr.innerHTML = `<td>${dateStr}</td><td>${act.type}</td><td class="${amountClass}">${amtStr}</td>`;
+                        tr.innerHTML = `<td>${dateStr}</td><td>${act.type}</td><td class="${act.isTransfer ? 'amount-min' : 'amount-plus'}">${amtStr}</td>`;
                         tbody.appendChild(tr);
                     });
                 }
 
+                // Dynamische Stacked Bar Chart
+                let allTypes = new Set();
+                data.forEach(i => allTypes.add(i.type));
                 const labels = Object.keys(monthlyData);
-                const dataSoep = labels.map(m => monthlyData[m]['Geen soep']);
-                const dataWater = labels.map(m => monthlyData[m]['Geen water']);
-                const dataAuto = labels.map(m => monthlyData[m]['Auto Zelf wassen']);
+                
+                const datasets = Array.from(allTypes).map(type => {
+                    return {
+                        label: type.includes('Historie') ? 'Historie' : type,
+                        data: labels.map(m => monthlyData[m][type] || 0),
+                        backgroundColor: getColor(type)
+                    };
+                });
+
+                // Voeg categorieën samen als ze dezelfde naam hebben ('Historie')
+                const mergedDatasets = [];
+                datasets.forEach(ds => {
+                    let existing = mergedDatasets.find(m => m.label === ds.label);
+                    if(existing) {
+                        existing.data = existing.data.map((val, idx) => val + ds.data[idx]);
+                    } else { mergedDatasets.push(ds); }
+                });
 
                 const ctx = document.getElementById('myChart').getContext('2d');
                 if (window.myChartObj) window.myChartObj.destroy();
                 window.myChartObj = new Chart(ctx, {
-                    type: 'bar',
-                    data: { 
-                        labels: labels, 
-                        datasets: [
-                            { label: 'Soep', data: dataSoep, backgroundColor: '#27ae60' },
-                            { label: 'Water', data: dataWater, backgroundColor: '#2980b9' },
-                            { label: 'Auto', data: dataAuto, backgroundColor: '#8e44ad' }
-                        ] 
-                    },
+                    type: 'bar', data: { labels: labels, datasets: mergedDatasets },
                     options: { 
-                        maintainAspectRatio: false,
-                        responsive: true,
-                        scales: { 
-                            x: { stacked: true },
-                            y: { stacked: true, beginAtZero: true } 
-                        },
-                        plugins: {
-                            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10 } }
-                        }
+                        maintainAspectRatio: false, responsive: true,
+                        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: {size: 10} } } }
                     }
                 });
-            } catch (err) {
-                console.error("Fout in updateUI:", err);
-            }
+            } catch (err) { console.error("Fout in updateUI:", err); }
         }
         
         updateUI();
