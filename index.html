@@ -112,34 +112,32 @@
         let cloudData = [];
         let cloudTransfers = [];
 
-        // --- 2. HISTORIE LADER MET FOUTMELDINGEN ---
+        // --- 2. SLIMME HISTORIE LADER (Kijkt naar de Cloud, niet naar het apparaat) ---
         function seedInitialCloudData() {
-            if (localStorage.getItem('cloud_seeded_v3') !== 'true') {
-                const initialData = [
-                    { date: '2026-02-15T12:00:00.000Z', amount: 67.00, type: 'Historie Feb' },
-                    { date: '2026-03-15T12:00:00.000Z', amount: 75.00, type: 'Historie Mrt' },
-                    { date: '2026-04-15T12:00:00.000Z', amount: 18.00, type: 'Historie Apr' },
-                    { date: '2026-05-15T12:00:00.000Z', amount: 38.00, type: 'Historie Mei' },
-                    { date: '2026-06-10T12:00:00.000Z', amount: 5.70, type: 'Historie Jun' },
-                    { date: '2026-06-11T12:00:00.000Z', amount: 0.22, type: 'Correctie tot 203.92' }
-                ];
-                
-                // We wachten tot de allereerste succesvol is opgeslagen voordat we het vinkje zetten
-                db.collection("besparingen").add(initialData[0]).then(() => {
-                    // Als de eerste lukt, vuur de rest ook af
-                    for (let i = 1; i < initialData.length; i++) {
-                        db.collection("besparingen").add(initialData[i]);
-                    }
-                    db.collection("overschrijvingen").add({ date: '2026-06-12T12:00:00.000Z', amount: 198.00 });
+            // We vragen Firebase: Bestaat "Historie Feb" al in de database?
+            db.collection("besparingen").where("type", "==", "Historie Feb").get().then((querySnapshot) => {
+                if (querySnapshot.empty) {
+                    // Als hij leeg is, schieten we de historie erin!
+                    const initialData = [
+                        { date: '2026-02-15T12:00:00.000Z', amount: 67.00, type: 'Historie Feb' },
+                        { date: '2026-03-15T12:00:00.000Z', amount: 75.00, type: 'Historie Mrt' },
+                        { date: '2026-04-15T12:00:00.000Z', amount: 18.00, type: 'Historie Apr' },
+                        { date: '2026-05-15T12:00:00.000Z', amount: 38.00, type: 'Historie Mei' },
+                        { date: '2026-06-10T12:00:00.000Z', amount: 5.70, type: 'Historie Jun' },
+                        { date: '2026-06-11T12:00:00.000Z', amount: 0.22, type: 'Correctie tot 203.92' }
+                    ];
                     
-                    // En we onthouden dat het is gelukt
-                    localStorage.setItem('cloud_seeded_v3', 'true');
-                    console.log("Historie succesvol in Firebase gezet.");
-                }).catch((error) => {
-                    alert("Fout bij opslaan historie in de cloud! Heb je de Rules (Regels) aangepast? Fout: " + error.message);
-                });
-            }
+                    initialData.forEach(item => db.collection("besparingen").add(item));
+                    db.collection("overschrijvingen").add({ date: '2026-06-12T12:00:00.000Z', amount: 198.00 });
+                    console.log("Historie succesvol geladen in de Cloud.");
+                } else {
+                    console.log("Historie is al aanwezig in de Cloud, sla stap over.");
+                }
+            }).catch((error) => {
+                console.error("Kon database niet controleren:", error);
+            });
         }
+        // Roep deze functie direct aan bij het laden
         seedInitialCloudData();
 
         const colorMap = {
@@ -161,8 +159,6 @@
             });
             document.getElementById('loadingMessage').style.display = 'none';
             updateUI();
-        }, (error) => {
-            alert("Firebase Weigert Lees-toegang: " + error.message);
         });
 
         db.collection("overschrijvingen").orderBy("date", "asc").onSnapshot((snapshot) => {
@@ -175,14 +171,13 @@
             updateUI();
         });
 
-        // --- 4. DATA TOEVOEGEN AAN FIREBASE MET CONTROLE ---
+        // --- 4. DATA TOEVOEGEN AAN FIREBASE ---
         function promptAndLog(defaultBedrag, type) {
             let input = prompt(`Bevestig of wijzig het bespaarde bedrag voor '${type}':`, defaultBedrag.toFixed(2).replace('.', ','));
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: type })
-                    .catch(error => alert("Oeps, Firebase weigert: " + error.message));
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: type });
                 }
             }
         }
@@ -194,8 +189,7 @@
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: desc })
-                    .catch(error => alert("Oeps, Firebase weigert: " + error.message));
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: desc });
                 }
             }
         }
@@ -205,8 +199,7 @@
             if (input) {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag })
-                    .catch(error => alert("Oeps, Firebase weigert: " + error.message));
+                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag });
                 }
             }
         }
@@ -222,14 +215,14 @@
             let lastTransferTime = lastTransfer ? new Date(lastTransfer.date).getTime() : 0;
 
             if (lastDataTime > lastTransferTime) {
-                db.collection("besparingen").doc(lastData.id).delete().catch(e => alert(e.message));
+                db.collection("besparingen").doc(lastData.id).delete();
             } else {
-                db.collection("overschrijvingen").doc(lastTransfer.id).delete().catch(e => alert(e.message));
+                db.collection("overschrijvingen").doc(lastTransfer.id).delete();
             }
         }
 
         function resetData() {
-            if (confirm("Weet je zeker dat je ALLES uit de cloud wilt wissen (inclusief historie)?")) {
+            if (confirm("Weet je zeker dat je ALLES uit de cloud wilt wissen? OPMERKING: De app zal hierna de historie automatisch 1x opnieuw inladen bij een verversing.")) {
                 cloudData.forEach(item => db.collection("besparingen").doc(item.id).delete());
                 cloudTransfers.forEach(item => db.collection("overschrijvingen").doc(item.id).delete());
             }
