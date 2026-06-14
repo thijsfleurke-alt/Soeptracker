@@ -3,19 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bespaar-Tracker</title>
+    <title>Cloud Bespaar-Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <style>
         :root { --bg: #f4f4f9; --card: #ffffff; --text: #333; --border: #ddd; }
         body.dark-mode { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --border: #444; }
         body { font-family: sans-serif; padding: 10px; background-color: var(--bg); color: var(--text); }
         .card { background: var(--card); border: 1px solid var(--border); padding: 10px; margin-bottom: 10px; border-radius: 8px; }
         
-        /* Knoppen raster */
         .btn-container { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;}
         button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-size: 11px; color: white; flex: 1 1 30%; }
         
-        /* Kleurenpalet voor de knoppen */
         .btn-soep { background-color: #27ae60; }
         .btn-water { background-color: #2980b9; }
         .btn-auto { background-color: #8e44ad; }
@@ -44,6 +44,7 @@
         th { font-weight: bold; }
         .amount-plus { color: #27ae60; font-weight: bold; }
         .amount-min { color: #e67e22; font-weight: bold; }
+        .loading { text-align: center; font-style: italic; color: #7f8c8d; padding: 5px; }
     </style>
 </head>
 <body>
@@ -59,8 +60,7 @@
             <button class="btn-andere" onclick="promptAndere()">Andere...</button>
         </div>
         
-        <div id="tickerBox" class="ticker-container">
-            </div>
+        <div id="tickerBox" class="ticker-container"></div>
         <div id="lastTimestamp" class="timestamp">Laatste besparing: -</div>
 
         <button class="btn-transfer" onclick="logTransfer()">Overschrijven naar rekening</button>
@@ -70,6 +70,7 @@
     </div>
 
     <div class="card">
+        <div id="loadingMessage" class="loading">Data synchroniseren met de cloud...</div>
         <div class="chart-container"><canvas id="myChart"></canvas></div>
         
         <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border);">
@@ -94,13 +95,28 @@
     </div>
 
     <script>
-        // --- 1. HISTORISCHE DATA INLADEN (Eenmalig) ---
-        function seedInitialData() {
-            if (localStorage.getItem('seeded_v3') !== 'true') {
-                localStorage.removeItem('soepData');
-                localStorage.removeItem('transferData');
+        // --- 1. FIREBASE CONFIGURATIE (JOUW GEGEVENS) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyADvgY4kOydK8b7k_yQ7ZIpz-1Zyoh9S04",
+            authDomain: "apps-26402.firebaseapp.com",
+            projectId: "apps-26402",
+            storageBucket: "apps-26402.firebasestorage.app",
+            messagingSenderId: "401909070997",
+            appId: "1:401909070997:web:d494c0e8436bb80c2f6f9c",
+            measurementId: "G-6L7YVTSX32"
+        };
 
-                let initialData = [
+        // Initialiseer Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let cloudData = [];
+        let cloudTransfers = [];
+
+        // --- 2. HISTORISCHE DATA NAAR DE CLOUD PUSHEN ---
+        function seedInitialCloudData() {
+            if (localStorage.getItem('cloud_seeded_v1') !== 'true') {
+                const initialData = [
                     { date: '2026-02-15T12:00:00.000Z', amount: 67.00, type: 'Historie Feb' },
                     { date: '2026-03-15T12:00:00.000Z', amount: 75.00, type: 'Historie Mrt' },
                     { date: '2026-04-15T12:00:00.000Z', amount: 18.00, type: 'Historie Apr' },
@@ -108,18 +124,16 @@
                     { date: '2026-06-10T12:00:00.000Z', amount: 5.70, type: 'Historie Jun' },
                     { date: '2026-06-11T12:00:00.000Z', amount: 0.22, type: 'Correctie tot 203.92' }
                 ];
-                let initialTransfers = [
-                    { date: '2026-06-12T12:00:00.000Z', amount: 198.00 }
-                ];
-
-                localStorage.setItem('soepData', JSON.stringify(initialData));
-                localStorage.setItem('transferData', JSON.stringify(initialTransfers));
-                localStorage.setItem('seeded_v3', 'true');
+                initialData.forEach(item => db.collection("besparingen").add(item));
+                db.collection("overschrijvingen").add({ date: '2026-06-12T12:00:00.000Z', amount: 198.00 });
+                
+                // Vink af dat we dit hebben gedaan, zodat hij het niet dubbel doet
+                localStorage.setItem('cloud_seeded_v1', 'true');
             }
         }
-        seedInitialData();
+        seedInitialCloudData();
 
-        // --- 2. HULPFUNCTIES & DATA OPSLAG ---
+        // Kleurenkaart
         const colorMap = {
             'Geen soep': '#27ae60', 'Geen water': '#2980b9', 'Auto Zelf wassen': '#8e44ad',
             'Geen koffie': '#d35400', 'Thuiswerken do': '#16a085', 'Geen collect & go': '#c0392b',
@@ -127,52 +141,51 @@
             'Historie Apr': '#95a5a6', 'Historie Mei': '#95a5a6', 'Historie Jun': '#95a5a6'
         };
         function getColor(type) { return colorMap[type] || '#34495e'; }
-        
         function toggleDarkMode() { document.body.classList.toggle('dark-mode'); }
 
-        function safeLoad(key) {
-            try {
-                let data = JSON.parse(localStorage.getItem(key));
-                if (!Array.isArray(data)) return [];
-                return data.filter(item => item !== null && typeof item === 'object' && !isNaN(item.amount));
-            } catch (e) { return []; }
-        }
-        function safeSave(key, data) {
-            try { localStorage.setItem(key, JSON.stringify(data)); } 
-            catch (e) { alert("Browser blokkeert opslag."); }
-        }
+        // --- 3. REAL-TIME LIVE SYNC MET FIREBASE ---
+        db.collection("besparingen").orderBy("date", "asc").onSnapshot((snapshot) => {
+            cloudData = [];
+            snapshot.forEach((doc) => {
+                let docData = doc.data();
+                docData.id = doc.id; // Noodzakelijk voor de Undo functie
+                cloudData.push(docData);
+            });
+            document.getElementById('loadingMessage').style.display = 'none';
+            updateUI();
+        });
 
-        // --- 3. ACTIES TOEVOEGEN ---
+        db.collection("overschrijvingen").orderBy("date", "asc").onSnapshot((snapshot) => {
+            cloudTransfers = [];
+            snapshot.forEach((doc) => {
+                let docData = doc.data();
+                docData.id = doc.id;
+                cloudTransfers.push(docData);
+            });
+            updateUI();
+        });
+
+        // --- 4. DATA TOEVOEGEN AAN FIREBASE ---
         function promptAndLog(defaultBedrag, type) {
-            // Laat de gebruiker het bedrag zien en eventueel wijzigen
             let input = prompt(`Bevestig of wijzig het bespaarde bedrag voor '${type}':`, defaultBedrag.toFixed(2).replace('.', ','));
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    logAction(bedrag, type);
-                } else {
-                    alert("Ongeldig bedrag.");
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: type });
                 }
             }
         }
 
         function promptAndere() {
-            let desc = prompt("Wat heb je bespaard? (Bv. 'Broodje overgeslagen')");
+            let desc = prompt("Wat heb je bespaard?");
             if (!desc) return;
             let input = prompt(`Hoeveel heb je bespaard met '${desc}'?`);
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    logAction(bedrag, desc); // Gebruik de omschrijving als type
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: desc });
                 }
             }
-        }
-
-        function logAction(bedrag, type) {
-            let data = safeLoad('soepData');
-            data.push({ date: new Date().toISOString(), amount: Number(bedrag), type: type });
-            safeSave('soepData', data);
-            updateUI();
         }
 
         function logTransfer() {
@@ -180,50 +193,48 @@
             if (input) {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    let transfers = safeLoad('transferData');
-                    transfers.push({ date: new Date().toISOString(), amount: bedrag });
-                    safeSave('transferData', transfers);
-                    updateUI();
-                } else { alert("Vul alsjeblieft een geldig getal in."); }
+                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag });
+                }
             }
         }
 
-        // --- 4. BEHEREN VAN DATA ---
+        // --- 5. DATA VERWIJDEREN (UNDO & RESET IN FIREBASE) ---
         function undoLastAction() {
-            let data = safeLoad('soepData');
-            let transfers = safeLoad('transferData');
-            let lastDataTime = data.length > 0 ? new Date(data[data.length - 1].date).getTime() : 0;
-            let lastTransferTime = transfers.length > 0 ? new Date(transfers[transfers.length - 1].date).getTime() : 0;
+            if (cloudData.length === 0 && cloudTransfers.length === 0) return alert("Niets om ongedaan te maken.");
 
-            if (lastDataTime === 0 && lastTransferTime === 0) return alert("Niets om ongedaan te maken.");
+            let lastData = cloudData[cloudData.length - 1];
+            let lastTransfer = cloudTransfers[cloudTransfers.length - 1];
 
-            if (lastDataTime > lastTransferTime) { data.pop(); safeSave('soepData', data); } 
-            else { transfers.pop(); safeSave('transferData', transfers); }
-            updateUI();
+            let lastDataTime = lastData ? new Date(lastData.date).getTime() : 0;
+            let lastTransferTime = lastTransfer ? new Date(lastTransfer.date).getTime() : 0;
+
+            if (lastDataTime > lastTransferTime) {
+                db.collection("besparingen").doc(lastData.id).delete();
+            } else {
+                db.collection("overschrijvingen").doc(lastTransfer.id).delete();
+            }
         }
 
         function resetData() {
-            if (confirm("Let op: Dit wist ook je opgeslagen Historie (Feb-Jun). Weet je het zeker?")) {
-                localStorage.removeItem('soepData');
-                localStorage.removeItem('transferData');
-                updateUI();
+            if (confirm("Weet je zeker dat je ALLES uit de cloud wilt wissen (inclusief historie)?")) {
+                cloudData.forEach(item => db.collection("besparingen").doc(item.id).delete());
+                cloudTransfers.forEach(item => db.collection("overschrijvingen").doc(item.id).delete());
+                localStorage.removeItem('cloud_seeded_v1'); // Zorgt dat je historie later eventueel opnieuw inlaadt
             }
         }
 
-        // --- 5. HET SCHERM UPDATEN ---
+        // --- 6. HET SCHERM UPDATEN ---
         function updateUI() {
             try {
-                let data = safeLoad('soepData');
-                let transfers = safeLoad('transferData');
                 let allActions = [];
                 let monthlyData = {};
-                let typeCounts = {}; // Telt hoe vaak je op een knop hebt gedrukt
+                let typeCounts = {};
 
                 let lastSaveDate = null;
                 let lastTransferDate = null;
 
-                const totalSaved = data.reduce((sum, item) => sum + Number(item.amount), 0);
-                const totalTransferred = transfers.reduce((sum, item) => sum + Number(item.amount), 0);
+                const totalSaved = cloudData.reduce((sum, item) => sum + Number(item.amount), 0);
+                const totalTransferred = cloudTransfers.reduce((sum, item) => sum + Number(item.amount), 0);
                 const remaining = totalSaved - totalTransferred;
                 let futureValue = totalSaved * Math.pow(1.07, 10);
                 
@@ -232,34 +243,31 @@
                 document.getElementById('remainingSaved').innerText = `Resterend budget: €${remaining.toFixed(2).replace('.', ',')}`;
                 document.getElementById('investResult').innerText = `Waarde na 10 jaar (7%): €${futureValue.toFixed(2).replace('.', ',')}`;
 
-                data.forEach(item => {
+                cloudData.forEach(item => {
                     if (!item.date) return;
                     let itemDate = new Date(item.date);
                     if (!lastSaveDate || itemDate > lastSaveDate) lastSaveDate = itemDate;
 
                     const month = itemDate.toLocaleString('nl-NL', { month: 'short', year: '2-digit' });
                     let type = item.type || 'Overig';
-                    if (type === 'Auto wassen') type = 'Auto Zelf wassen'; 
                     
                     if (!monthlyData[month]) monthlyData[month] = {};
                     if (monthlyData[month][type] === undefined) monthlyData[month][type] = 0;
                     monthlyData[month][type] += Number(item.amount);
                     
-                    // Ticker ophogen (negeer de hardcoded historie regels)
                     if(!type.includes('Historie') && !type.includes('Correctie')) {
                         typeCounts[type] = (typeCounts[type] || 0) + 1;
                     }
                     allActions.push({ date: itemDate, type: type, amount: Number(item.amount), isTransfer: false });
                 });
 
-                transfers.forEach(item => {
+                cloudTransfers.forEach(item => {
                     if (!item.date) return;
                     let itemDate = new Date(item.date);
                     if (!lastTransferDate || itemDate > lastTransferDate) lastTransferDate = itemDate;
                     allActions.push({ date: itemDate, type: 'Overschrijving', amount: Number(item.amount), isTransfer: true });
                 });
 
-                // Dynamische Tickers Bouwen
                 const tickerBox = document.getElementById('tickerBox');
                 tickerBox.innerHTML = '';
                 for (const [t, count] of Object.entries(typeCounts)) {
@@ -273,7 +281,6 @@
                 document.getElementById('lastTimestamp').innerText = lastSaveDate ? `Laatste besparing: ${lastSaveDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste besparing: -`;
                 document.getElementById('lastTransferTimestamp').innerText = lastTransferDate ? `Laatste overschrijving: ${lastTransferDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste overschrijving: -`;
 
-                // Logboek Tabel
                 allActions.sort((a, b) => b.date - a.date);
                 const tbody = document.getElementById('actionHistory');
                 tbody.innerHTML = '';
@@ -289,9 +296,8 @@
                     });
                 }
 
-                // Dynamische Stacked Bar Chart
                 let allTypes = new Set();
-                data.forEach(i => allTypes.add(i.type));
+                cloudData.forEach(i => allTypes.add(i.type));
                 const labels = Object.keys(monthlyData);
                 
                 const datasets = Array.from(allTypes).map(type => {
@@ -302,7 +308,6 @@
                     };
                 });
 
-                // Voeg categorieën samen als ze dezelfde naam hebben ('Historie')
                 const mergedDatasets = [];
                 datasets.forEach(ds => {
                     let existing = mergedDatasets.find(m => m.label === ds.label);
@@ -323,8 +328,6 @@
                 });
             } catch (err) { console.error("Fout in updateUI:", err); }
         }
-        
-        updateUI();
     </script>
 </body>
 </html>
