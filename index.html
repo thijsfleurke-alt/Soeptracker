@@ -106,17 +106,15 @@
             measurementId: "G-6L7YVTSX32"
         };
 
-        // Initialiseer Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
         let cloudData = [];
         let cloudTransfers = [];
 
-        // --- 2. HISTORIE FORCEER-LADER ---
+        // --- 2. HISTORIE LADER MET FOUTMELDINGEN ---
         function seedInitialCloudData() {
-            // Door de flag te veranderen naar v2, forceert hij de upload
-            if (localStorage.getItem('cloud_seeded_v2') !== 'true') {
+            if (localStorage.getItem('cloud_seeded_v3') !== 'true') {
                 const initialData = [
                     { date: '2026-02-15T12:00:00.000Z', amount: 67.00, type: 'Historie Feb' },
                     { date: '2026-03-15T12:00:00.000Z', amount: 75.00, type: 'Historie Mrt' },
@@ -125,15 +123,25 @@
                     { date: '2026-06-10T12:00:00.000Z', amount: 5.70, type: 'Historie Jun' },
                     { date: '2026-06-11T12:00:00.000Z', amount: 0.22, type: 'Correctie tot 203.92' }
                 ];
-                initialData.forEach(item => db.collection("besparingen").add(item));
-                db.collection("overschrijvingen").add({ date: '2026-06-12T12:00:00.000Z', amount: 198.00 });
                 
-                localStorage.setItem('cloud_seeded_v2', 'true');
+                // We wachten tot de allereerste succesvol is opgeslagen voordat we het vinkje zetten
+                db.collection("besparingen").add(initialData[0]).then(() => {
+                    // Als de eerste lukt, vuur de rest ook af
+                    for (let i = 1; i < initialData.length; i++) {
+                        db.collection("besparingen").add(initialData[i]);
+                    }
+                    db.collection("overschrijvingen").add({ date: '2026-06-12T12:00:00.000Z', amount: 198.00 });
+                    
+                    // En we onthouden dat het is gelukt
+                    localStorage.setItem('cloud_seeded_v3', 'true');
+                    console.log("Historie succesvol in Firebase gezet.");
+                }).catch((error) => {
+                    alert("Fout bij opslaan historie in de cloud! Heb je de Rules (Regels) aangepast? Fout: " + error.message);
+                });
             }
         }
         seedInitialCloudData();
 
-        // Kleurenkaart
         const colorMap = {
             'Geen soep': '#27ae60', 'Geen water': '#2980b9', 'Auto Zelf wassen': '#8e44ad',
             'Geen koffie': '#d35400', 'Thuiswerken do': '#16a085', 'Geen collect & go': '#c0392b',
@@ -143,7 +151,7 @@
         function getColor(type) { return colorMap[type] || '#34495e'; }
         function toggleDarkMode() { document.body.classList.toggle('dark-mode'); }
 
-        // --- 3. REAL-TIME LIVE SYNC MET FIREBASE ---
+        // --- 3. REAL-TIME LIVE SYNC ---
         db.collection("besparingen").orderBy("date", "asc").onSnapshot((snapshot) => {
             cloudData = [];
             snapshot.forEach((doc) => {
@@ -153,6 +161,8 @@
             });
             document.getElementById('loadingMessage').style.display = 'none';
             updateUI();
+        }, (error) => {
+            alert("Firebase Weigert Lees-toegang: " + error.message);
         });
 
         db.collection("overschrijvingen").orderBy("date", "asc").onSnapshot((snapshot) => {
@@ -165,13 +175,14 @@
             updateUI();
         });
 
-        // --- 4. DATA TOEVOEGEN AAN FIREBASE ---
+        // --- 4. DATA TOEVOEGEN AAN FIREBASE MET CONTROLE ---
         function promptAndLog(defaultBedrag, type) {
             let input = prompt(`Bevestig of wijzig het bespaarde bedrag voor '${type}':`, defaultBedrag.toFixed(2).replace('.', ','));
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: type });
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: type })
+                    .catch(error => alert("Oeps, Firebase weigert: " + error.message));
                 }
             }
         }
@@ -183,7 +194,8 @@
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: desc });
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: desc })
+                    .catch(error => alert("Oeps, Firebase weigert: " + error.message));
                 }
             }
         }
@@ -193,12 +205,13 @@
             if (input) {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag });
+                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag })
+                    .catch(error => alert("Oeps, Firebase weigert: " + error.message));
                 }
             }
         }
 
-        // --- 5. DATA VERWIJDEREN (UNDO & RESET IN FIREBASE) ---
+        // --- 5. DATA VERWIJDEREN (UNDO) ---
         function undoLastAction() {
             if (cloudData.length === 0 && cloudTransfers.length === 0) return alert("Niets om ongedaan te maken.");
 
@@ -209,9 +222,9 @@
             let lastTransferTime = lastTransfer ? new Date(lastTransfer.date).getTime() : 0;
 
             if (lastDataTime > lastTransferTime) {
-                db.collection("besparingen").doc(lastData.id).delete();
+                db.collection("besparingen").doc(lastData.id).delete().catch(e => alert(e.message));
             } else {
-                db.collection("overschrijvingen").doc(lastTransfer.id).delete();
+                db.collection("overschrijvingen").doc(lastTransfer.id).delete().catch(e => alert(e.message));
             }
         }
 
