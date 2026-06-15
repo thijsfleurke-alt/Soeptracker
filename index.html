@@ -16,26 +16,17 @@
         .btn-container { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;}
         button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-size: 11px; color: white; flex: 1 1 30%; }
         
-        .btn-soep { background-color: #27ae60; }
-        .btn-water { background-color: #2980b9; }
-        .btn-auto { background-color: #8e44ad; }
-        .btn-koffie { background-color: #d35400; }
-        .btn-thuis { background-color: #16a085; }
-        .btn-collect { background-color: #c0392b; }
-        .btn-andere { background-color: #34495e; }
-        
         .btn-transfer { background-color: #f39c12; margin-top: 5px; display: block; width: 100%; font-weight: bold; font-size: 12px; }
         
         .bottom-actions { display: flex; gap: 5px; margin-top: 10px; }
         .btn-undo { background-color: #e67e22; flex: 1; }
+        .btn-redo { background-color: #3498db; flex: 1; } /* Blauwe Redo knop */
         .btn-reset { background-color: #c0392b; flex: 1; }
         .btn-dark { background-color: #7f8c8d; display: block; width: 100%; margin-top: 5px; }
         
-        .ticker-container { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; font-size: 11px; }
-        .ticker { padding: 4px; border-radius: 4px; color: white; font-weight: bold; flex: 1 1 20%; text-align: center; }
         .timestamp { font-size: 11px; font-style: italic; color: #7f8c8d; text-align: center; margin-bottom: 5px; }
         
-        .chart-container { height: 250px; width: 100%; }
+        .chart-container { height: 260px; width: 100%; }
         .info-text { font-size: 14px; margin: 5px 0; }
         .highlight { color: #f39c12; font-weight: bold; }
 
@@ -50,18 +41,9 @@
 <body>
 
     <div class="card">
-        <div class="btn-container">
-            <button class="btn-soep" onclick="promptAndLog(1.50, 'Geen soep')">Geen soep (±€1,50)</button>
-            <button class="btn-water" onclick="promptAndLog(0.19, 'Geen water')">Geen water (±€0,19)</button>
-            <button class="btn-auto" onclick="promptAndLog(17.00, 'Auto Zelf wassen')">Auto wassen (±€17)</button>
-            <button class="btn-koffie" onclick="promptAndLog(0.35, 'Geen koffie')">Geen koffie (±€0,35)</button>
-            <button class="btn-thuis" onclick="promptAndLog(1.26, 'Thuiswerken do')">Thuiswerk do (±€1,26)</button>
-            <button class="btn-collect" onclick="promptAndLog(5.95, 'Geen collect & go')">Geen C&G (±€5,95)</button>
-            <button class="btn-andere" onclick="promptAndere()">Andere...</button>
-        </div>
+        <div id="dynamicButtons" class="btn-container"></div>
         
-        <div id="tickerBox" class="ticker-container"></div>
-        <div id="lastTimestamp" class="timestamp">Laatste besparing: -</div>
+        <div id="lastTimestamp" class="timestamp" style="margin-top: 10px;">Laatste besparing: -</div>
 
         <button class="btn-transfer" onclick="logTransfer()">Overschrijven naar rekening</button>
         <div id="lastTransferTimestamp" class="timestamp" style="margin-top: 5px;">Laatste overschrijving: -</div>
@@ -82,6 +64,7 @@
 
         <div class="bottom-actions">
             <button class="btn-undo" onclick="undoLastAction()">Ongedaan maken</button>
+            <button class="btn-redo" onclick="redoAction()">Opnieuw</button>
             <button class="btn-reset" onclick="resetData()">Alles wissen</button>
         </div>
     </div>
@@ -111,86 +94,107 @@
 
         let cloudData = [];
         let cloudTransfers = [];
+        let redoStack = []; // Klembord voor de 'Opnieuw' knop
+        
+        let buttonsConfig = [
+            { name: 'Geen soep', amount: 1.50, color: '#27ae60' },
+            { name: 'Geen water', amount: 0.19, color: '#2980b9' },
+            { name: 'Auto wassen', amount: 17.00, color: '#8e44ad' },
+            { name: 'Geen koffie', amount: 0.35, color: '#d35400' },
+            { name: 'Thuiswerken do', amount: 1.26, color: '#16a085' },
+            { name: 'Geen collect & go', amount: 5.95, color: '#c0392b' }
+        ];
 
-        // --- 2. SLIMME HISTORIE LADER (Kijkt naar de Cloud, niet naar het apparaat) ---
-        function seedInitialCloudData() {
-            // We vragen Firebase: Bestaat "Historie Feb" al in de database?
-            db.collection("besparingen").where("type", "==", "Historie Feb").get().then((querySnapshot) => {
-                if (querySnapshot.empty) {
-                    // Als hij leeg is, schieten we de historie erin!
-                    const initialData = [
-                        { date: '2026-02-15T12:00:00.000Z', amount: 67.00, type: 'Historie Feb' },
-                        { date: '2026-03-15T12:00:00.000Z', amount: 75.00, type: 'Historie Mrt' },
-                        { date: '2026-04-15T12:00:00.000Z', amount: 18.00, type: 'Historie Apr' },
-                        { date: '2026-05-15T12:00:00.000Z', amount: 38.00, type: 'Historie Mei' },
-                        { date: '2026-06-10T12:00:00.000Z', amount: 5.70, type: 'Historie Jun' },
-                        { date: '2026-06-11T12:00:00.000Z', amount: 0.22, type: 'Correctie tot 203.92' }
-                    ];
-                    
-                    initialData.forEach(item => db.collection("besparingen").add(item));
-                    db.collection("overschrijvingen").add({ date: '2026-06-12T12:00:00.000Z', amount: 198.00 });
-                    console.log("Historie succesvol geladen in de Cloud.");
-                } else {
-                    console.log("Historie is al aanwezig in de Cloud, sla stap over.");
-                }
-            }).catch((error) => {
-                console.error("Kon database niet controleren:", error);
-            });
-        }
-        // Roep deze functie direct aan bij het laden
-        seedInitialCloudData();
-
-        const colorMap = {
-            'Geen soep': '#27ae60', 'Geen water': '#2980b9', 'Auto Zelf wassen': '#8e44ad',
-            'Geen koffie': '#d35400', 'Thuiswerken do': '#16a085', 'Geen collect & go': '#c0392b',
-            'Andere': '#34495e', 'Historie Feb': '#95a5a6', 'Historie Mrt': '#95a5a6',
-            'Historie Apr': '#95a5a6', 'Historie Mei': '#95a5a6', 'Historie Jun': '#95a5a6'
-        };
-        function getColor(type) { return colorMap[type] || '#34495e'; }
         function toggleDarkMode() { document.body.classList.toggle('dark-mode'); }
+        
+        function getColor(type) { 
+            if (type === 'Historie') return '#95a5a6';
+            if (type === 'Andere') return '#34495e';
+            let found = buttonsConfig.find(b => b.name === type);
+            return found ? found.color : '#7f8c8d'; 
+        }
 
-        // --- 3. REAL-TIME LIVE SYNC ---
-        db.collection("besparingen").orderBy("date", "asc").onSnapshot((snapshot) => {
-            cloudData = [];
-            snapshot.forEach((doc) => {
-                let docData = doc.data();
-                docData.id = doc.id; 
-                cloudData.push(docData);
-            });
-            document.getElementById('loadingMessage').style.display = 'none';
-            updateUI();
+        db.collection("settings").doc("buttonConfig").onSnapshot((doc) => {
+            if (doc.exists) {
+                buttonsConfig = doc.data().buttons || buttonsConfig;
+            } else {
+                db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
+            }
+            renderButtons();
+            updateUI(); 
         });
 
-        db.collection("overschrijvingen").orderBy("date", "asc").onSnapshot((snapshot) => {
-            cloudTransfers = [];
-            snapshot.forEach((doc) => {
-                let docData = doc.data();
-                docData.id = doc.id;
-                cloudTransfers.push(docData);
+        function renderButtons() {
+            const container = document.getElementById('dynamicButtons');
+            container.innerHTML = '';
+            
+            buttonsConfig.forEach((btn, index) => {
+                const buttonEl = document.createElement('button');
+                buttonEl.innerText = `${btn.name} (±€${btn.amount.toFixed(2).replace('.', ',')})`;
+                buttonEl.style.backgroundColor = btn.color;
+                buttonEl.onclick = () => handleButtonClick(index, btn.name, btn.amount);
+                container.appendChild(buttonEl);
             });
-            updateUI();
-        });
 
-        // --- 4. DATA TOEVOEGEN AAN FIREBASE ---
-        function promptAndLog(defaultBedrag, type) {
-            let input = prompt(`Bevestig of wijzig het bespaarde bedrag voor '${type}':`, defaultBedrag.toFixed(2).replace('.', ','));
+            const andereBtn = document.createElement('button');
+            andereBtn.innerText = 'Andere...';
+            andereBtn.style.backgroundColor = '#34495e';
+            andereBtn.onclick = promptAndere;
+            container.appendChild(andereBtn);
+
+            const addBtn = document.createElement('button');
+            addBtn.innerText = '+ Nieuwe Categorie';
+            addBtn.style.backgroundColor = '#7f8c8d';
+            addBtn.onclick = addCategory;
+            container.appendChild(addBtn);
+        }
+
+        // --- 4. ACTIES: OPSLAAN, AANPASSEN & TOEVOEGEN ---
+        function handleButtonClick(index, currentType, currentAmount) {
+            let input = prompt(`Bevestig bedrag voor '${currentType}':`, currentAmount.toFixed(2).replace('.', ','));
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: type });
+                    redoStack = []; // Maak klembord leeg bij een nieuwe actie
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: currentType })
+                      .catch(error => alert("Firebase weigert: " + error.message));
+                    
+                    if (bedrag !== currentAmount) {
+                        if (confirm(`Wil je €${bedrag.toFixed(2).replace('.', ',')} instellen als het vaste standaardbedrag voor de knop '${currentType}'?`)) {
+                            buttonsConfig[index].amount = bedrag;
+                            db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
+                        }
+                    }
                 }
             }
         }
 
         function promptAndere() {
-            let desc = prompt("Wat heb je bespaard?");
+            let desc = prompt("Wat heb je bespaard? (Dit wordt opgeslagen onder de categorie 'Andere')");
             if (!desc) return;
             let input = prompt(`Hoeveel heb je bespaard met '${desc}'?`);
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: Number(bedrag), type: desc });
+                    redoStack = []; // Maak klembord leeg
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: 'Andere', note: desc })
+                      .catch(error => alert("Firebase weigert: " + error.message));
                 }
+            }
+        }
+
+        function addCategory() {
+            let name = prompt("Naam van de nieuwe besparing (bijv. 'Geen snoep'):");
+            if (!name || name.trim() === "") return;
+            let amountStr = prompt("Wat is het standaard bedrag? (€):");
+            if (!amountStr) return;
+            let amount = parseFloat(amountStr.replace(',', '.'));
+            if (!isNaN(amount) && amount > 0) {
+                let colors = ['#f1c40f', '#e74c3c', '#9b59b6', '#3498db', '#1abc9c', '#d35400'];
+                let randomColor = colors[Math.floor(Math.random() * colors.length)];
+                
+                buttonsConfig.push({ name: name, amount: amount, color: randomColor });
+                db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
             }
         }
 
@@ -199,41 +203,109 @@
             if (input) {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag });
+                    redoStack = []; // Maak klembord leeg
+                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag })
+                    .catch(error => alert("Firebase weigert: " + error.message));
                 }
             }
         }
 
-        // --- 5. DATA VERWIJDEREN (UNDO) ---
+        // --- 5. UNDO & REDO LOGICA ---
         function undoLastAction() {
             if (cloudData.length === 0 && cloudTransfers.length === 0) return alert("Niets om ongedaan te maken.");
-
+            
             let lastData = cloudData[cloudData.length - 1];
             let lastTransfer = cloudTransfers[cloudTransfers.length - 1];
-
             let lastDataTime = lastData ? new Date(lastData.date).getTime() : 0;
             let lastTransferTime = lastTransfer ? new Date(lastTransfer.date).getTime() : 0;
 
             if (lastDataTime > lastTransferTime) {
+                // Kopieer naar klembord voor eventuele Redo
+                let backup = { ...lastData };
+                delete backup.id; 
+                redoStack.push({ collection: "besparingen", data: backup });
+                
                 db.collection("besparingen").doc(lastData.id).delete();
             } else {
+                let backup = { ...lastTransfer };
+                delete backup.id;
+                redoStack.push({ collection: "overschrijvingen", data: backup });
+                
                 db.collection("overschrijvingen").doc(lastTransfer.id).delete();
             }
         }
 
+        function redoAction() {
+            if (redoStack.length === 0) return alert("Er is geen actie om opnieuw uit te voeren.");
+            
+            let restoreItem = redoStack.pop();
+            db.collection(restoreItem.collection).add(restoreItem.data)
+              .catch(e => alert("Fout bij opnieuw uitvoeren: " + e.message));
+        }
+
         function resetData() {
-            if (confirm("Weet je zeker dat je ALLES uit de cloud wilt wissen? OPMERKING: De app zal hierna de historie automatisch 1x opnieuw inladen bij een verversing.")) {
-                cloudData.forEach(item => db.collection("besparingen").doc(item.id).delete());
+            if (confirm("Weet je zeker dat je ALLES uit de cloud wilt wissen? (Historie + je opgeslagen knoppen blijven bewaard)")) {
+                cloudData.forEach(item => {
+                    if(item.type !== 'Historie') db.collection("besparingen").doc(item.id).delete();
+                });
                 cloudTransfers.forEach(item => db.collection("overschrijvingen").doc(item.id).delete());
+                redoStack = []; // Klembord wissen
             }
         }
 
-        // --- 6. HET SCHERM UPDATEN ---
+        // --- 6. REAL-TIME LIVE SYNC ---
+        db.collection("besparingen").orderBy("date", "asc").onSnapshot((snapshot) => {
+            cloudData = [];
+            snapshot.forEach((doc) => {
+                let docData = doc.data(); docData.id = doc.id; cloudData.push(docData);
+            });
+            document.getElementById('loadingMessage').style.display = 'none';
+            updateUI();
+        });
+
+        db.collection("overschrijvingen").orderBy("date", "asc").onSnapshot((snapshot) => {
+            cloudTransfers = [];
+            snapshot.forEach((doc) => {
+                let docData = doc.data(); docData.id = doc.id; cloudTransfers.push(docData);
+            });
+            updateUI();
+        });
+
+        const topLabelsPlugin = {
+            id: 'topLabels',
+            afterDatasetsDraw(chart) {
+                const { ctx, scales: { x, y } } = chart;
+                chart.data.labels.forEach((label, i) => {
+                    let total = 0;
+                    let metaDataForX = null;
+                    chart.data.datasets.forEach((dataset, datasetIndex) => {
+                        const val = dataset.data[i];
+                        if (val) {
+                            total += val;
+                            if (!metaDataForX) {
+                                const meta = chart.getDatasetMeta(datasetIndex);
+                                if (meta.data[i]) metaDataForX = meta.data[i].x;
+                            }
+                        }
+                    });
+                    if (total > 0 && metaDataForX) {
+                        const yPos = y.getPixelForValue(total);
+                        ctx.save();
+                        ctx.fillStyle = document.body.classList.contains('dark-mode') ? '#e0e0e0' : '#333';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('€' + total.toFixed(2), metaDataForX, yPos - 5);
+                        ctx.restore();
+                    }
+                });
+            }
+        };
+
+        // --- 7. HET SCHERM UPDATEN ---
         function updateUI() {
             try {
                 let allActions = [];
                 let monthlyData = {};
-                let typeCounts = {};
 
                 let lastSaveDate = null;
                 let lastTransferDate = null;
@@ -254,16 +326,18 @@
                     if (!lastSaveDate || itemDate > lastSaveDate) lastSaveDate = itemDate;
 
                     const month = itemDate.toLocaleString('nl-NL', { month: 'short', year: '2-digit' });
+                    
                     let type = item.type || 'Overig';
+                    if (type.includes('Historie') || type.includes('Correctie')) {
+                        type = 'Historie'; 
+                    }
                     
                     if (!monthlyData[month]) monthlyData[month] = {};
                     if (monthlyData[month][type] === undefined) monthlyData[month][type] = 0;
                     monthlyData[month][type] += Number(item.amount);
                     
-                    if(!type.includes('Historie') && !type.includes('Correctie')) {
-                        typeCounts[type] = (typeCounts[type] || 0) + 1;
-                    }
-                    allActions.push({ date: itemDate, type: type, amount: Number(item.amount), isTransfer: false });
+                    let displayName = item.note ? `Andere (${item.note})` : type;
+                    allActions.push({ date: itemDate, type: displayName, amount: Number(item.amount), isTransfer: false });
                 });
 
                 cloudTransfers.forEach(item => {
@@ -272,16 +346,6 @@
                     if (!lastTransferDate || itemDate > lastTransferDate) lastTransferDate = itemDate;
                     allActions.push({ date: itemDate, type: 'Overschrijving', amount: Number(item.amount), isTransfer: true });
                 });
-
-                const tickerBox = document.getElementById('tickerBox');
-                tickerBox.innerHTML = '';
-                for (const [t, count] of Object.entries(typeCounts)) {
-                    let span = document.createElement('span');
-                    span.className = 'ticker';
-                    span.style.backgroundColor = getColor(t);
-                    span.innerText = `${count}x`;
-                    tickerBox.appendChild(span);
-                }
 
                 document.getElementById('lastTimestamp').innerText = lastSaveDate ? `Laatste besparing: ${lastSaveDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste besparing: -`;
                 document.getElementById('lastTransferTimestamp').innerText = lastTransferDate ? `Laatste overschrijving: ${lastTransferDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste overschrijving: -`;
@@ -302,34 +366,32 @@
                 }
 
                 let allTypes = new Set();
-                cloudData.forEach(i => allTypes.add(i.type));
+                Object.values(monthlyData).forEach(monthObj => {
+                    Object.keys(monthObj).forEach(type => allTypes.add(type));
+                });
                 const labels = Object.keys(monthlyData);
                 
                 const datasets = Array.from(allTypes).map(type => {
                     return {
-                        label: type.includes('Historie') ? 'Historie' : type,
+                        label: type,
                         data: labels.map(m => monthlyData[m][type] || 0),
                         backgroundColor: getColor(type)
                     };
                 });
 
-                const mergedDatasets = [];
-                datasets.forEach(ds => {
-                    let existing = mergedDatasets.find(m => m.label === ds.label);
-                    if(existing) {
-                        existing.data = existing.data.map((val, idx) => val + ds.data[idx]);
-                    } else { mergedDatasets.push(ds); }
-                });
-
                 const ctx = document.getElementById('myChart').getContext('2d');
                 if (window.myChartObj) window.myChartObj.destroy();
                 window.myChartObj = new Chart(ctx, {
-                    type: 'bar', data: { labels: labels, datasets: mergedDatasets },
+                    type: 'bar', 
+                    data: { labels: labels, datasets: datasets },
                     options: { 
-                        maintainAspectRatio: false, responsive: true,
+                        maintainAspectRatio: false, 
+                        responsive: true,
+                        layout: { padding: { top: 20 } }, 
                         scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
                         plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: {size: 10} } } }
-                    }
+                    },
+                    plugins: [topLabelsPlugin] 
                 });
             } catch (err) { console.error("Fout in updateUI:", err); }
         }
