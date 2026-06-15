@@ -95,7 +95,7 @@
         let cloudData = [];
         let cloudTransfers = [];
         let redoStack = []; 
-        let editMode = false; // Houdt bij of we in bewerkingsmodus zitten
+        let editMode = false; 
         
         let buttonsConfig = [
             { name: 'Geen soep', amount: 1.50, color: '#27ae60' },
@@ -115,6 +115,7 @@
             return found ? found.color : '#7f8c8d'; 
         }
 
+        // Luister naar knoppenconfiguratie in de cloud
         db.collection("settings").doc("buttonConfig").onSnapshot((doc) => {
             if (doc.exists) {
                 buttonsConfig = doc.data().buttons || buttonsConfig;
@@ -123,6 +124,9 @@
             }
             renderButtons();
             updateUI(); 
+        }, (error) => {
+            console.log("Settings snapshot error, fallback naar standaard:", error);
+            renderButtons();
         });
 
         // --- 2. DYNAMISCHE KNOPPEN BEREKENEN ---
@@ -141,7 +145,7 @@
                 if (editMode) {
                     buttonEl.innerText = `✏️ ${btn.name}`;
                     buttonEl.style.backgroundColor = btn.color;
-                    buttonEl.style.opacity = "0.7"; // Maak ze iets lichter in bewerkmodus
+                    buttonEl.style.opacity = "0.7"; 
                     buttonEl.style.border = "1px dashed #333";
                     buttonEl.onclick = () => manageCategory(index);
                 } else {
@@ -149,11 +153,9 @@
                     buttonEl.style.backgroundColor = btn.color;
                     buttonEl.onclick = () => handleButtonClick(index, btn.name, btn.amount);
                 }
-                
                 container.appendChild(buttonEl);
             });
 
-            // Als we NIET in bewerkingsmodus zitten, toon Andere en Nieuwe categorie
             if (!editMode) {
                 const andereBtn = document.createElement('button');
                 andereBtn.innerText = 'Andere...';
@@ -168,12 +170,11 @@
                 container.appendChild(addBtn);
             }
 
-            // De Edit Toggle Knop
             const editBtn = document.createElement('button');
             if (editMode) {
                 editBtn.innerText = '✅ Klaar met bewerken';
                 editBtn.style.backgroundColor = '#2ecc71';
-                editBtn.style.width = '100%'; // Maak m breed zodat ie opvalt
+                editBtn.style.width = '100%'; 
             } else {
                 editBtn.innerText = '⚙️ Knoppen bewerken';
                 editBtn.style.backgroundColor = '#95a5a6';
@@ -182,7 +183,7 @@
             container.appendChild(editBtn);
         }
 
-        // --- 3. CATEGORIEËN BEHEREN (HERNOEMEN / VERWIJDEREN) ---
+        // --- 3. CATEGORIEËN BEHEREN ---
         function manageCategory(index) {
             let oudeNaam = buttonsConfig[index].name;
             let actie = prompt(`Wat wil je doen met '${oudeNaam}'?\n\nTyp 1 voor: Naam wijzigen\nTyp 2 voor: Verwijderen\nTyp 3 voor: Annuleren`, "1");
@@ -193,8 +194,7 @@
                     buttonsConfig[index].name = nieuweNaam.trim();
                     db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
                     
-                    // Vraag of historische data ook bijgewerkt moet worden
-                    if (confirm(`Wil je ook al je eerdere besparingen in de geschiedenis en grafiek veranderen van '${oudeNaam}' naar '${nieuweNaam.trim()}'?`)) {
+                    if (confirm(`Wil je ook al je eerdere besparingen in de geschiedenis veranderen van '${oudeNaam}' naar '${nieuweNaam.trim()}'?`)) {
                         cloudData.forEach(item => {
                             if (item.type === oudeNaam) {
                                 db.collection("besparingen").doc(item.id).update({ type: nieuweNaam.trim() });
@@ -203,7 +203,7 @@
                     }
                 }
             } else if (actie === "2") {
-                if (confirm(`Weet je zeker dat je de knop '${oudeNaam}' wilt verwijderen?\n(Je oude data in de grafiek blijft gewoon bewaard)`)) {
+                if (confirm(`Weet je zeker dat je de knop '${oudeNaam}' wilt verwijderen?`)) {
                     buttonsConfig.splice(index, 1);
                     db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
                 }
@@ -218,11 +218,10 @@
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
                     redoStack = []; 
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: currentType })
-                      .catch(error => alert("Firebase weigert: " + error.message));
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: currentType });
                     
                     if (bedrag !== currentAmount) {
-                        if (confirm(`Wil je €${bedrag.toFixed(2).replace('.', ',')} instellen als het vaste standaardbedrag voor de knop '${currentType}'?`)) {
+                        if (confirm(`Wil je €${bedrag.toFixed(2).replace('.', ',')} instellen als het vaste standaardbedrag voor '${currentType}'?`)) {
                             buttonsConfig[index].amount = bedrag;
                             db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
                         }
@@ -232,23 +231,22 @@
         }
 
         function promptAndere() {
-            let desc = prompt("Wat heb je bespaard? (Dit wordt opgeslagen onder de categorie 'Andere')");
+            let desc = prompt("Wat heb je bespaard?");
             if (!desc) return;
             let input = prompt(`Hoeveel heb je bespaard met '${desc}'?`);
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
                     redoStack = []; 
-                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: 'Andere', note: desc })
-                      .catch(error => alert("Firebase weigert: " + error.message));
+                    db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: 'Andere', note: desc });
                 }
             }
         }
 
         function addCategory() {
-            let name = prompt("Naam van de nieuwe besparing (bijv. 'Minder snoep'):");
+            let name = prompt("Naam van de nieuwe besparing:");
             if (!name || name.trim() === "") return;
-            let amountStr = prompt("Wat is het standaard bedrag? (€):");
+            let amountStr = prompt("Standaard bedrag? (€):");
             if (!amountStr) return;
             let amount = parseFloat(amountStr.replace(',', '.'));
             if (!isNaN(amount) && amount > 0) {
@@ -261,13 +259,12 @@
         }
 
         function logTransfer() {
-            let input = prompt("Hoeveel wil je overschrijven naar je rekening? (€)");
+            let input = prompt("Hoeveel overgemaakt naar rekening? (€)");
             if (input) {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
                     redoStack = []; 
-                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag })
-                    .catch(error => alert("Firebase weigert: " + error.message));
+                    db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag });
                 }
             }
         }
@@ -282,51 +279,41 @@
             let lastTransferTime = lastTransfer ? new Date(lastTransfer.date).getTime() : 0;
 
             if (lastDataTime > lastTransferTime) {
-                let backup = { ...lastData };
-                delete backup.id; 
+                let backup = { ...lastData }; delete backup.id; 
                 redoStack.push({ collection: "besparingen", data: backup });
                 db.collection("besparingen").doc(lastData.id).delete();
             } else {
-                let backup = { ...lastTransfer };
-                delete backup.id;
+                let backup = { ...lastTransfer }; delete backup.id;
                 redoStack.push({ collection: "overschrijvingen", data: backup });
                 db.collection("overschrijvingen").doc(lastTransfer.id).delete();
             }
         }
 
         function redoAction() {
-            if (redoStack.length === 0) return alert("Er is geen actie om opnieuw uit te voeren.");
-            
+            if (redoStack.length === 0) return alert("Niets om opnieuw uit te voeren.");
             let restoreItem = redoStack.pop();
-            db.collection(restoreItem.collection).add(restoreItem.data)
-              .catch(e => alert("Fout bij opnieuw uitvoeren: " + e.message));
+            db.collection(restoreItem.collection).add(restoreItem.data);
         }
 
         function resetData() {
-            if (confirm("Weet je zeker dat je ALLES uit de cloud wilt wissen? (Historie + je opgeslagen knoppen blijven bewaard)")) {
-                cloudData.forEach(item => {
-                    if(item.type !== 'Historie') db.collection("besparingen").doc(item.id).delete();
-                });
+            if (confirm("ALLES wissen uit de cloud? (Knoppen blijven bestaan)")) {
+                cloudData.forEach(item => { if(item.type !== 'Historie') db.collection("besparingen").doc(item.id).delete(); });
                 cloudTransfers.forEach(item => db.collection("overschrijvingen").doc(item.id).delete());
                 redoStack = []; 
             }
         }
 
-        // --- 6. LIVE SYNC MET FIREBASE ---
+        // --- 6. LIVE SYNC ---
         db.collection("besparingen").orderBy("date", "asc").onSnapshot((snapshot) => {
             cloudData = [];
-            snapshot.forEach((doc) => {
-                let docData = doc.data(); docData.id = doc.id; cloudData.push(docData);
-            });
+            snapshot.forEach((doc) => { let docData = doc.data(); docData.id = doc.id; cloudData.push(docData); });
             document.getElementById('loadingMessage').style.display = 'none';
             updateUI();
         });
 
         db.collection("overschrijvingen").orderBy("date", "asc").onSnapshot((snapshot) => {
             cloudTransfers = [];
-            snapshot.forEach((doc) => {
-                let docData = doc.data(); docData.id = doc.id; cloudTransfers.push(docData);
-            });
+            snapshot.forEach((doc) => { let docData = doc.data(); docData.id = doc.id; cloudTransfers.push(docData); });
             updateUI();
         });
 
@@ -335,39 +322,26 @@
             afterDatasetsDraw(chart) {
                 const { ctx, scales: { x, y } } = chart;
                 chart.data.labels.forEach((label, i) => {
-                    let total = 0;
-                    let metaDataForX = null;
+                    let total = 0; let metaDataForX = null;
                     chart.data.datasets.forEach((dataset, datasetIndex) => {
                         const val = dataset.data[i];
-                        if (val) {
-                            total += val;
-                            if (!metaDataForX) {
-                                const meta = chart.getDatasetMeta(datasetIndex);
-                                if (meta.data[i]) metaDataForX = meta.data[i].x;
-                            }
-                        }
+                        if (val) { total += val; if (!metaDataForX) { const meta = chart.getDatasetMeta(datasetIndex); if (meta.data[i]) metaDataForX = meta.data[i].x; } }
                     });
                     if (total > 0 && metaDataForX) {
-                        const yPos = y.getPixelForValue(total);
-                        ctx.save();
+                        const yPos = y.getPixelForValue(total); ctx.save();
                         ctx.fillStyle = document.body.classList.contains('dark-mode') ? '#e0e0e0' : '#333';
-                        ctx.font = 'bold 11px sans-serif';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('€' + total.toFixed(2), metaDataForX, yPos - 5);
-                        ctx.restore();
+                        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+                        ctx.fillText('€' + total.toFixed(2).replace('.', ','), metaDataForX, yPos - 5); ctx.restore();
                     }
                 });
             }
         };
 
-        // --- 7. UI UPDATEN ---
+        // --- 7. UI REFRESH ---
         function updateUI() {
             try {
-                let allActions = [];
-                let monthlyData = {};
-
-                let lastSaveDate = null;
-                let lastTransferDate = null;
+                let allActions = []; let monthlyData = {};
+                let lastSaveDate = null; let lastTransferDate = null;
 
                 const totalSaved = cloudData.reduce((sum, item) => sum + Number(item.amount), 0);
                 const totalTransferred = cloudTransfers.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -385,11 +359,8 @@
                     if (!lastSaveDate || itemDate > lastSaveDate) lastSaveDate = itemDate;
 
                     const month = itemDate.toLocaleString('nl-NL', { month: 'short', year: '2-digit' });
-                    
                     let type = item.type || 'Overig';
-                    if (type.includes('Historie') || type.includes('Correctie')) {
-                        type = 'Historie'; 
-                    }
+                    if (type.includes('Historie') || type.includes('Correctie')) type = 'Historie'; 
                     
                     if (!monthlyData[month]) monthlyData[month] = {};
                     if (monthlyData[month][type] === undefined) monthlyData[month][type] = 0;
@@ -410,43 +381,40 @@
                 document.getElementById('lastTransferTimestamp').innerText = lastTransferDate ? `Laatste overschrijving: ${lastTransferDate.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : `Laatste overschrijving: -`;
 
                 allActions.sort((a, b) => b.date - a.date);
-                const tbody = document.getElementById('actionHistory');
-                tbody.innerHTML = '';
+                const tbody = document.getElementById('actionHistory'); tbody.innerHTML = '';
                 if (allActions.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; font-style:italic;">Nog geen acties</td></tr>';
                 } else {
                     allActions.slice(0, 10).forEach(act => {
                         let tr = document.createElement('tr');
                         let dateStr = act.date.toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                        let amtStr = (act.isTransfer ? '- €' : '+ €') + act.amount.toFixed(2);
+                        let amtStr = (act.isTransfer ? '- €' : '+ €') + act.amount.toFixed(2).replace('.', ',');
                         tr.innerHTML = `<td>${dateStr}</td><td>${act.type}</td><td class="${act.isTransfer ? 'amount-min' : 'amount-plus'}">${amtStr}</td>`;
                         tbody.appendChild(tr);
                     });
                 }
 
                 let allTypes = new Set();
-                Object.values(monthlyData).forEach(monthObj => {
-                    Object.keys(monthObj).forEach(type => allTypes.add(type));
-                });
+                Object.values(monthlyData).forEach(monthObj => { Object.keys(monthObj).forEach(type => allTypes.add(type)); });
                 const labels = Object.keys(monthlyData);
                 
                 const datasets = Array.from(allTypes).map(type => {
-                    return {
-                        label: type,
-                        data: labels.map(m => monthlyData[m][type] || 0),
-                        backgroundColor: getColor(type)
-                    };
+                    return { label: type, data: labels.map(m => monthlyData[m][type] || 0), backgroundColor: getColor(type) };
+                });
+
+                const mergedDatasets = [];
+                datasets.forEach(ds => {
+                    let existing = mergedDatasets.find(m => m.label === ds.label);
+                    if(existing) existing.data = existing.data.map((val, idx) => val + ds.data[idx]);
+                    else mergedDatasets.push(ds);
                 });
 
                 const ctx = document.getElementById('myChart').getContext('2d');
                 if (window.myChartObj) window.myChartObj.destroy();
                 window.myChartObj = new Chart(ctx, {
-                    type: 'bar', 
-                    data: { labels: labels, datasets: datasets },
+                    type: 'bar', data: { labels: labels, datasets: mergedDatasets },
                     options: { 
-                        maintainAspectRatio: false, 
-                        responsive: true,
-                        layout: { padding: { top: 20 } }, 
+                        maintainAspectRatio: false, responsive: true, layout: { padding: { top: 20 } }, 
                         scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
                         plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: {size: 10} } } }
                     },
@@ -454,6 +422,9 @@
                 });
             } catch (err) { console.error("Fout in updateUI:", err); }
         }
+
+        // VOER DIT DIRECT UIT BIJ OPSTARTEN (Zorgt dat knoppen direct zichtbaar zijn)
+        renderButtons();
     </script>
 </body>
 </html>
