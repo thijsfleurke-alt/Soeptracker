@@ -14,13 +14,13 @@
         .card { background: var(--card); border: 1px solid var(--border); padding: 10px; margin-bottom: 10px; border-radius: 8px; }
         
         .btn-container { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;}
-        button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-size: 11px; color: white; flex: 1 1 30%; }
+        button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-size: 11px; color: white; flex: 1 1 30%; transition: 0.2s; }
         
         .btn-transfer { background-color: #f39c12; margin-top: 5px; display: block; width: 100%; font-weight: bold; font-size: 12px; }
         
         .bottom-actions { display: flex; gap: 5px; margin-top: 10px; }
         .btn-undo { background-color: #e67e22; flex: 1; }
-        .btn-redo { background-color: #3498db; flex: 1; } /* Blauwe Redo knop */
+        .btn-redo { background-color: #3498db; flex: 1; }
         .btn-reset { background-color: #c0392b; flex: 1; }
         .btn-dark { background-color: #7f8c8d; display: block; width: 100%; margin-top: 5px; }
         
@@ -94,7 +94,8 @@
 
         let cloudData = [];
         let cloudTransfers = [];
-        let redoStack = []; // Klembord voor de 'Opnieuw' knop
+        let redoStack = []; 
+        let editMode = false; // Houdt bij of we in bewerkingsmodus zitten
         
         let buttonsConfig = [
             { name: 'Geen soep', amount: 1.50, color: '#27ae60' },
@@ -124,38 +125,99 @@
             updateUI(); 
         });
 
+        // --- 2. DYNAMISCHE KNOPPEN BEREKENEN ---
+        function toggleEditMode() {
+            editMode = !editMode;
+            renderButtons();
+        }
+
         function renderButtons() {
             const container = document.getElementById('dynamicButtons');
             container.innerHTML = '';
             
             buttonsConfig.forEach((btn, index) => {
                 const buttonEl = document.createElement('button');
-                buttonEl.innerText = `${btn.name} (±€${btn.amount.toFixed(2).replace('.', ',')})`;
-                buttonEl.style.backgroundColor = btn.color;
-                buttonEl.onclick = () => handleButtonClick(index, btn.name, btn.amount);
+                
+                if (editMode) {
+                    buttonEl.innerText = `✏️ ${btn.name}`;
+                    buttonEl.style.backgroundColor = btn.color;
+                    buttonEl.style.opacity = "0.7"; // Maak ze iets lichter in bewerkmodus
+                    buttonEl.style.border = "1px dashed #333";
+                    buttonEl.onclick = () => manageCategory(index);
+                } else {
+                    buttonEl.innerText = `${btn.name} (±€${btn.amount.toFixed(2).replace('.', ',')})`;
+                    buttonEl.style.backgroundColor = btn.color;
+                    buttonEl.onclick = () => handleButtonClick(index, btn.name, btn.amount);
+                }
+                
                 container.appendChild(buttonEl);
             });
 
-            const andereBtn = document.createElement('button');
-            andereBtn.innerText = 'Andere...';
-            andereBtn.style.backgroundColor = '#34495e';
-            andereBtn.onclick = promptAndere;
-            container.appendChild(andereBtn);
+            // Als we NIET in bewerkingsmodus zitten, toon Andere en Nieuwe categorie
+            if (!editMode) {
+                const andereBtn = document.createElement('button');
+                andereBtn.innerText = 'Andere...';
+                andereBtn.style.backgroundColor = '#34495e';
+                andereBtn.onclick = promptAndere;
+                container.appendChild(andereBtn);
 
-            const addBtn = document.createElement('button');
-            addBtn.innerText = '+ Nieuwe Categorie';
-            addBtn.style.backgroundColor = '#7f8c8d';
-            addBtn.onclick = addCategory;
-            container.appendChild(addBtn);
+                const addBtn = document.createElement('button');
+                addBtn.innerText = '+ Nieuwe Categorie';
+                addBtn.style.backgroundColor = '#7f8c8d';
+                addBtn.onclick = addCategory;
+                container.appendChild(addBtn);
+            }
+
+            // De Edit Toggle Knop
+            const editBtn = document.createElement('button');
+            if (editMode) {
+                editBtn.innerText = '✅ Klaar met bewerken';
+                editBtn.style.backgroundColor = '#2ecc71';
+                editBtn.style.width = '100%'; // Maak m breed zodat ie opvalt
+            } else {
+                editBtn.innerText = '⚙️ Knoppen bewerken';
+                editBtn.style.backgroundColor = '#95a5a6';
+            }
+            editBtn.onclick = toggleEditMode;
+            container.appendChild(editBtn);
         }
 
-        // --- 4. ACTIES: OPSLAAN, AANPASSEN & TOEVOEGEN ---
+        // --- 3. CATEGORIEËN BEHEREN (HERNOEMEN / VERWIJDEREN) ---
+        function manageCategory(index) {
+            let oudeNaam = buttonsConfig[index].name;
+            let actie = prompt(`Wat wil je doen met '${oudeNaam}'?\n\nTyp 1 voor: Naam wijzigen\nTyp 2 voor: Verwijderen\nTyp 3 voor: Annuleren`, "1");
+            
+            if (actie === "1") {
+                let nieuweNaam = prompt("Wat wordt de nieuwe naam?", oudeNaam);
+                if (nieuweNaam && nieuweNaam.trim() !== "" && nieuweNaam !== oudeNaam) {
+                    buttonsConfig[index].name = nieuweNaam.trim();
+                    db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
+                    
+                    // Vraag of historische data ook bijgewerkt moet worden
+                    if (confirm(`Wil je ook al je eerdere besparingen in de geschiedenis en grafiek veranderen van '${oudeNaam}' naar '${nieuweNaam.trim()}'?`)) {
+                        cloudData.forEach(item => {
+                            if (item.type === oudeNaam) {
+                                db.collection("besparingen").doc(item.id).update({ type: nieuweNaam.trim() });
+                            }
+                        });
+                    }
+                }
+            } else if (actie === "2") {
+                if (confirm(`Weet je zeker dat je de knop '${oudeNaam}' wilt verwijderen?\n(Je oude data in de grafiek blijft gewoon bewaard)`)) {
+                    buttonsConfig.splice(index, 1);
+                    db.collection("settings").doc("buttonConfig").set({ buttons: buttonsConfig });
+                }
+            }
+            renderButtons();
+        }
+
+        // --- 4. ACTIES: OPSLAAN & TOEVOEGEN ---
         function handleButtonClick(index, currentType, currentAmount) {
             let input = prompt(`Bevestig bedrag voor '${currentType}':`, currentAmount.toFixed(2).replace('.', ','));
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    redoStack = []; // Maak klembord leeg bij een nieuwe actie
+                    redoStack = []; 
                     db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: currentType })
                       .catch(error => alert("Firebase weigert: " + error.message));
                     
@@ -176,7 +238,7 @@
             if (input !== null && input.trim() !== "") {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    redoStack = []; // Maak klembord leeg
+                    redoStack = []; 
                     db.collection("besparingen").add({ date: new Date().toISOString(), amount: bedrag, type: 'Andere', note: desc })
                       .catch(error => alert("Firebase weigert: " + error.message));
                 }
@@ -184,7 +246,7 @@
         }
 
         function addCategory() {
-            let name = prompt("Naam van de nieuwe besparing (bijv. 'Geen snoep'):");
+            let name = prompt("Naam van de nieuwe besparing (bijv. 'Minder snoep'):");
             if (!name || name.trim() === "") return;
             let amountStr = prompt("Wat is het standaard bedrag? (€):");
             if (!amountStr) return;
@@ -203,14 +265,14 @@
             if (input) {
                 let bedrag = parseFloat(input.replace(',', '.'));
                 if (!isNaN(bedrag) && bedrag > 0) {
-                    redoStack = []; // Maak klembord leeg
+                    redoStack = []; 
                     db.collection("overschrijvingen").add({ date: new Date().toISOString(), amount: bedrag })
                     .catch(error => alert("Firebase weigert: " + error.message));
                 }
             }
         }
 
-        // --- 5. UNDO & REDO LOGICA ---
+        // --- 5. UNDO & REDO ---
         function undoLastAction() {
             if (cloudData.length === 0 && cloudTransfers.length === 0) return alert("Niets om ongedaan te maken.");
             
@@ -220,17 +282,14 @@
             let lastTransferTime = lastTransfer ? new Date(lastTransfer.date).getTime() : 0;
 
             if (lastDataTime > lastTransferTime) {
-                // Kopieer naar klembord voor eventuele Redo
                 let backup = { ...lastData };
                 delete backup.id; 
                 redoStack.push({ collection: "besparingen", data: backup });
-                
                 db.collection("besparingen").doc(lastData.id).delete();
             } else {
                 let backup = { ...lastTransfer };
                 delete backup.id;
                 redoStack.push({ collection: "overschrijvingen", data: backup });
-                
                 db.collection("overschrijvingen").doc(lastTransfer.id).delete();
             }
         }
@@ -249,11 +308,11 @@
                     if(item.type !== 'Historie') db.collection("besparingen").doc(item.id).delete();
                 });
                 cloudTransfers.forEach(item => db.collection("overschrijvingen").doc(item.id).delete());
-                redoStack = []; // Klembord wissen
+                redoStack = []; 
             }
         }
 
-        // --- 6. REAL-TIME LIVE SYNC ---
+        // --- 6. LIVE SYNC MET FIREBASE ---
         db.collection("besparingen").orderBy("date", "asc").onSnapshot((snapshot) => {
             cloudData = [];
             snapshot.forEach((doc) => {
@@ -301,7 +360,7 @@
             }
         };
 
-        // --- 7. HET SCHERM UPDATEN ---
+        // --- 7. UI UPDATEN ---
         function updateUI() {
             try {
                 let allActions = [];
